@@ -17,6 +17,7 @@ AGGRESSIVE_EXTRA = [
 def strategy_none(body: str, base_url: str) -> tuple[str, int]:
     """Filtreleme yapma; tum medya URI'lerini guvenli proxy'ye yonlendir."""
     from urllib.parse import urljoin
+
     from app.core.proxy import proxy_url
     from app.hls.filter import _rewrite_uri_attributes
     out = []

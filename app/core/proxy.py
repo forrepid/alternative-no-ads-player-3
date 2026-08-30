@@ -10,7 +10,6 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 
-
 DEFAULT_ALLOWED_SUFFIXES = (
     "ttvnw.net",
     "twitchcdn.net",

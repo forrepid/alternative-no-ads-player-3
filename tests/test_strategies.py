@@ -6,8 +6,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.hls.strategies import apply_strategy  # noqa: E402
 from app.hls.filter import rewrite_master_playlist  # noqa: E402
+from app.hls.strategies import apply_strategy  # noqa: E402
 
 TWITCH_MEDIA_WITH_AD = """#EXTM3U
 #EXT-X-VERSION:3

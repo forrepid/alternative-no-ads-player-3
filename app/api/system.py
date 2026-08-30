@@ -3,8 +3,8 @@ from fastapi import APIRouter
 
 from app.core.config import settings
 from app.core.http import http
-from app.providers.twitch_integrity import solver as integrity_solver
 from app.main_version import APP_VERSION
+from app.providers.twitch_integrity import solver as integrity_solver
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 

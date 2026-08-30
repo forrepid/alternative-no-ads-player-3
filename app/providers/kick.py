@@ -1,4 +1,5 @@
 import logging
+
 from aiocache import cached
 
 from app.core.config import settings

@@ -6,9 +6,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api import resolve
 from app.api.routes import router
 from app.api.system import router as system_router
-from app.api import resolve
 from app.core.config import settings
 from app.core.http import http
 from app.main_version import APP_VERSION

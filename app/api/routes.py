@@ -1,5 +1,6 @@
 import logging
 import re
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse, Response
 
@@ -35,7 +36,7 @@ async def status_all(channel: str = Query(...)):
     ], return_exceptions=True)
     return [result if isinstance(result, ChannelStatus) else ChannelStatus(
         platform=platform, channel=channel, is_live=False, error=str(result))
-        for platform, result in zip(Platform, results)]
+        for platform, result in zip(Platform, results, strict=False)]
 
 
 @router.get("/stream/{platform}/{channel}", response_model=StreamInfo)

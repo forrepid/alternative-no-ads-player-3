@@ -20,3 +20,4 @@ class BypassBackend(ABC):
 
     async def close(self) -> None:
         """Kaynaklari temizle (opsiyonel)."""
+        return None
