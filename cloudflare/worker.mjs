@@ -1,4 +1,4 @@
-import { Container } from "cloudflare:workers";
+import { Container, getContainer } from "@cloudflare/containers";
 
 /**
  * Public HTTP entry point for the StreamBridge FastAPI container.
@@ -11,7 +11,6 @@ export class StreamBridgeContainer extends Container {
 
 export default {
   async fetch(request, env) {
-    const instance = env.STREAMBRIDGE.getByName("primary");
-    return instance.fetch(request);
+    return getContainer(env.STREAMBRIDGE, "primary").fetch(request);
   },
 };

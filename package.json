@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  }
+}
