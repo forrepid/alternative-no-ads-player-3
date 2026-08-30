@@ -1,0 +1,29 @@
+services:
+  streambridge:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      BYPASS_BACKEND: ${BYPASS_BACKEND:-direct}
+      CF_BYPASS_URL: http://cf-bypass:8000
+      CF_BYPASS_MODE: ${CF_BYPASS_MODE:-mirror}
+      TWITCH_STREAM_SOURCE: ${TWITCH_STREAM_SOURCE:-direct}
+      TWITCH_INTEGRITY_MODE: ${TWITCH_INTEGRITY_MODE:-auto}
+      AD_FILTER_STRATEGY: ${AD_FILTER_STRATEGY:-scte35}
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
+      KICK_ACCESS_TOKEN: ${KICK_ACCESS_TOKEN:-}
+    depends_on:
+      cf-bypass:
+        condition: service_started
+        required: false
+
+  # Alternatif modul: Cloudflare bypass sunucusu
+  # Sadece BYPASS_BACKEND=cf_server iken gereklidir:
+  #   docker compose --profile cf-bypass up -d
+  cf-bypass:
+    image: ghcr.io/sarperavci/cloudflarebypassforscraping:latest
+    profiles: ["cf-bypass"]
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

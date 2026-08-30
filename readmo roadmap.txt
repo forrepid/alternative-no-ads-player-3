@@ -1,0 +1,27 @@
+streambridge/
+├── app/
+│   ├── core/
+│   │   ├── bypass/          # YENI - tak-çıkar bypass backend'leri
+│   │   │   ├── base.py
+│   │   │   ├── direct.py
+│   │   │   ├── cf_server.py
+│   │   │   └── factory.py
+│   │   ├── config.py        # güncellendi
+│   │   ├── http.py          # güncellendi
+│   │   └── models.py        # güncellendi (2 opsiyonel alan)
+│   ├── hls/
+│   │   ├── filter.py        # AYNEN KORUNDU
+│   │   └── strategies.py    # YENI
+│   ├── providers/
+│   │   ├── twitch_integrity.py  # YENI
+│   │   ├── twitch.py        # güncellendi
+│   │   ├── kick.py          # AYNEN KORUNDU
+│   │   └── youtube.py       # AYNEN KORUNDU
+│   ├── api/
+│   │   ├── routes.py        # güncellendi
+│   │   └── system.py        # YENI
+│   └── main.py              # güncellendi
+├── tests/test_strategies.py # YENI
+├── docker-compose.yml       # YENI
+├── Dockerfile               # YENI
+└── requirements-bypass.txt  # YENI (opsiyonel)

@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "StreamBridge - Reklamsız İzle",
+  "version": "1.5.0",
+  "description": "Twitch, Kick ve YouTube yayınlarını StreamBridge üzerinden reklamsız izle.",
+  "permissions": ["storage", "contextMenus", "declarativeNetRequest", "nativeMessaging"],
+  "host_permissions": [
+    "http://localhost:8080/*",
+    "http://127.0.0.1:8080/*",
+    "*://*.twitch.tv/*",
+    "*://*.kick.com/*",
+    "*://*.youtube.com/*",
+    "https://multiwebblayer.mwplay.workers.dev/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "StreamBridge Player",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["*://*.twitch.tv/*", "*://*.kick.com/*", "*://*.youtube.com/*"],
+      "js": ["hls.min.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://multiwebblayer.mwplay.workers.dev/*"],
+      "js": ["hosted-import.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      { "id": "ruleset_1", "enabled": true, "path": "rules.json" }
+    ]
+  }
+}

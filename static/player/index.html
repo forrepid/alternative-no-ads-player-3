@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamBridge Player</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0e0e10; color:#fff; font-family:system-ui,sans-serif; }
+  header { padding:14px 20px; display:flex; gap:10px; flex-wrap:wrap;
+           background:#18181b; align-items:center; }
+  select,input,button { padding:8px 12px; border-radius:6px; border:1px solid #333;
+           background:#26262c; color:#fff; font-size:14px; }
+  button { background:#9147ff; border:none; cursor:pointer; font-weight:600; }
+  button:hover { background:#772ce8; }
+  #smartInput { flex:1; min-width:280px; }
+  #status { padding:8px 20px; font-size:13px; color:#aaa; }
+  #status .live { color:#eb0400; font-weight:700; }
+  video { width:100%; max-height:calc(100vh - 120px); background:#000; }
+  #variantBar { padding:6px 20px; display:flex; gap:8px; flex-wrap:wrap; }
+  #variantBar button { background:#26262c; font-weight:400; }
+  #variantBar button.active { background:#9147ff; }
+</style>
+</head>
+<body>
+<header>
+  <strong>StreamBridge</strong>
+  <input id="smartInput" placeholder="Link veya kanal adı yapıştır — twitch / kick / youtube otomatik tanınır">
+  <button onclick="playSmart()">Oynat</button>
+  <select id="platform">
+    <option value="kick">Kick</option>
+    <option value="twitch">Twitch</option>
+    <option value="youtube">YouTube</option>
+  </select>
+  <input id="channel" placeholder="kanal adi / @handle / video id" size="28">
+  <button onclick="loadStream()">Izle</button>
+  <button onclick="checkStatus()">Durum</button>
+</header>
+<div id="status"></div>
+<div id="variantBar"></div>
+<video id="video" controls autoplay muted></video>
+
+<script>
+const $ = id => document.getElementById(id);
+let hls = null;
+
+/* ---------- AKILLI LINK COZUMLEME ---------- */
+
+async function detectLivePlatform(channel) {
+  // Duz kanal adi verildiyse: once Twitch, sonra Kick canli mi diye bak
+  for (const p of ["twitch", "kick"]) {
+    try {
+      const s = await fetch(`/api/status/${p}/${channel}`).then(x => x.json());
+      if (s.is_live) return p;
+    } catch (e) {}
+  }
+  return "twitch"; // ikisi de cevrimdisiysa varsayilan
+}
+
+async function playSmart(text) {
+  text = (text ?? $("smartInput").value).trim();
+  if (!text) return;
+  $("status").textContent = "Link çözümleniyor...";
+
+  const res = await fetch("/api/resolve?url=" + encodeURIComponent(text));
+  if (!res.ok) { $("status").textContent = "Link tanınamadı."; return; }
+  const r = await res.json();
+
+  let platform = r.platform;
+  if (platform === "auto") platform = await detectLivePlatform(r.channel);
+
+  // VOD linkleri simdilik desteklenmiyor
+  if (r.kind === "video" && platform !== "youtube") {
+    $("status").textContent = "VOD desteği henüz yok — canlı yayın linki verin.";
+    return;
+  }
+
+  $("platform").value = platform;
+  $("channel").value = r.channel ?? r.video_id;
+  await loadStream();
+}
+
+// Enter tusu ile de oynat
+$("smartInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") playSmart();
+});
+
+// Sayfa ?url= ile acildiysa (tarayici eklentisi buraya yonlendirir) otomatik oynat
+// Sayfa parametre ile acildiysa (tarayici eklentisi buraya yonlendirir) otomatik oynat
+window.addEventListener("DOMContentLoaded", () => {
+  const q = new URLSearchParams(location.search);
+  const pUrl = q.get("url");
+  const pPlatform = q.get("platform");
+  const pChannel = q.get("channel");
+  const pVideo = q.get("video");
+
+  if (pUrl) {
+    // ?url=... -> akilli cozumleme
+    $("smartInput").value = pUrl;
+    playSmart(pUrl);
+  } else if (pPlatform && pChannel) {
+    // ?platform=twitch&channel=shroud -> dogrudan oynat
+    $("platform").value = pPlatform;
+    $("channel").value = pChannel;
+    loadStream();
+  } else if (pPlatform === "youtube" && pVideo) {
+    // ?platform=youtube&video=VIDEO_ID
+    $("platform").value = "youtube";
+    $("channel").value = pVideo;
+    loadStream();
+  }
+});
+
+/* ---------- MEVCUT PLAYER ---------- */
+
+async function checkStatus() {
+  const p = $("platform").value, c = $("channel").value.trim();
+  if (!c) return;
+  const r = await fetch(`/api/status/${p}/${c}`).then(r => r.json());
+  setStatus(r.is_live
+    ? `● CANLI ${r.title ?? ""} — ${r.viewers ?? "?"} izleyici — ${r.category ?? ""}`
+    : `Çevrimdışı ${r.error ? "(" + r.error + ")" : ""}`, r.is_live);
+}
+
+function setStatus(message, live = false) {
+  const node = $("status");
+  node.replaceChildren();
+  if (live) {
+    const badge = document.createElement("span");
+    badge.className = "live";
+    badge.textContent = "● CANLI ";
+    node.appendChild(badge);
+    message = message.replace(/^● CANLI /, "");
+  }
+  node.appendChild(document.createTextNode(message));
+}
+
+async function loadStream() {
+  const p = $("platform").value, c = $("channel").value.trim();
+  if (!c) return;
+  $("status").textContent = "Yükleniyor...";
+  const r = await fetch(`/api/stream/${p}/${c}`);
+  if (!r.ok) { $("status").textContent = "Yayın bulunamadı / çevrimdışı."; return; }
+  const info = await r.json();
+  setStatus(`● CANLI ${info.title ?? ""} ` +
+    (info.ads_filtered ? "— reklam filtresi AKTİF" : "— reklamsız kaynak"), true);
+
+  $("variantBar").replaceChildren();
+  for (const v of info.variants ?? []) {
+    const b = document.createElement("button");
+    b.textContent = v.quality;
+    b.onclick = () => play(`/api/hls/media?url=${encodeURIComponent(v.url)}`, b);
+    $("variantBar").appendChild(b);
+  }
+  play(info.master_playlist);
+}
+
+function play(url, btn) {
+  if (btn) {
+    document.querySelectorAll("#variantBar button")
+      .forEach(x => x.classList.remove("active"));
+    btn.classList.add("active");
+  }
+  const video = $("video");
+  if (hls) hls.destroy();
+  if (Hls.isSupported()) {
+    hls = new Hls({ liveSyncDurationCount: 3, enableWorker: true });
+    hls.loadSource(url);
+    hls.attachMedia(video);
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = url;
+  }
+  video.play().catch(() => {});
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+# Twitch client-integrity cozucu icin (TWITCH_INTEGRITY_MODE=auto|force)
+playwright>=1.44
+# Kurulum sonrasi bir kez:  playwright install chromium
