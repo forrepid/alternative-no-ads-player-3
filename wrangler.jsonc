@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "alternative-no-ads-player-3",
+  "main": "cloudflare/worker.mjs",
+  "compatibility_date": "2026-08-30",
+  "containers": [
+    {
+      "class_name": "StreamBridgeContainer",
+      "image": "./Dockerfile",
+      "max_instances": 1,
+      "instance_type": "lite"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "STREAMBRIDGE",
+        "class_name": "StreamBridgeContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["StreamBridgeContainer"]
+    }
+  ]
+}

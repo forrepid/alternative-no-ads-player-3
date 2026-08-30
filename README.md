@@ -35,6 +35,16 @@ Cloudflare bypass yalnızca gerektiğinde açılır:
 docker compose --profile cf-bypass up --build
 ```
 
+## Cloudflare Container dağıtımı
+
+Proje, yerel Docker olmadan Cloudflare Workers Builds üzerinden derlenmek üzere
+`wrangler.jsonc` ve `cloudflare/worker.mjs` içerir. Cloudflare Dashboard'da
+**Workers & Pages → Create application → Connect GitHub** ile
+`forrepid/alternative-no-ads-player-3` deposunu seçin; üretim dalı `master`,
+deploy komutu `npx wrangler deploy` olmalıdır. Cloudflare Docker image'ını
+uzakta derler ve uygulama `https://alternative-no-ads-player-3.mwplay.workers.dev/player/`
+adresinden erişilebilir olur.
+
 ## Yapılandırma
 
 Tüm seçenekler [.env.example](.env.example) içinde belgelenmiştir. HLS proxy varsayılan
