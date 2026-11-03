@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 
@@ -20,6 +21,47 @@ def _valid_channel(channel: str) -> str:
     if not re.fullmatch(r"@?[A-Za-z0-9_.-]{2,100}", channel):
         raise HTTPException(400, detail="invalid channel identifier")
     return channel
+
+
+@router.get("/search/suggestions")
+async def search_suggestions(q: str = Query(..., min_length=2, max_length=100),
+                             limit: int = Query(20, ge=1, le=20)):
+    """Kanal adi yazarken guvenli, canli durumuna gore siralanan oneriler.
+
+    API anahtari olmadan platformlar genel bir ortak kanal arama endpoint'i
+    sunmadigindan yalnizca kullanicinin yazdigi olasi kanal kimligini dogrular.
+    Bilibili/Dailymotion sonuc tipleri, kullaniciyi kendi arama sayfalarina
+    yonlendiren acik arama kisayollaridir; StreamBridge bunlari oynatmaz.
+    """
+    query = _valid_channel(q.strip().lstrip("@"))
+    platforms = (Platform.twitch, Platform.kick, Platform.youtube)
+    statuses = await asyncio.gather(
+        *(get_provider(platform).get_status(query) for platform in platforms),
+        return_exceptions=True,
+    )
+    results: list[dict] = []
+    for platform, result in zip(platforms, statuses, strict=False):
+        if isinstance(result, ChannelStatus):
+            title = result.title or f"{query} · {platform.value}"
+            results.append({
+                "platform": platform.value,
+                "channel": query,
+                "title": title,
+                "is_live": result.is_live,
+                "viewers": result.viewers,
+                "thumbnail": result.thumbnail,
+                "external": False,
+            })
+    results.sort(key=lambda item: (not item["is_live"], -(item["viewers"] or 0), item["platform"]))
+    for platform in ("bilibili", "dailymotion"):
+        results.append({
+            "platform": platform,
+            "channel": query,
+            "title": f"{platform.title()} üzerinde “{query}” ara",
+            "is_live": False,
+            "external": True,
+        })
+    return {"query": query, "results": results[:limit]}
 
 
 @router.get("/status/{platform}/{channel}", response_model=ChannelStatus)

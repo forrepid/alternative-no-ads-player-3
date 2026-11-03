@@ -18,21 +18,36 @@
   #status { padding:8px 20px; font-size:13px; color:#aaa; }
   #status .live { color:#eb0400; font-weight:700; }
   video { width:100%; max-height:calc(100vh - 120px); background:#000; }
-  #variantBar { padding:6px 20px; display:flex; gap:8px; flex-wrap:wrap; }
-  #variantBar button { background:#26262c; font-weight:400; }
-  #variantBar button.active { background:#9147ff; }
+  #variantBar { display:none; }
+  #playerShell { position:relative; background:#000; }
   #settings { margin:0 20px 10px; padding:12px; max-width:720px; border:1px solid #333;
     border-radius:8px; background:#18181b; font-size:13px; }
   #settings[hidden] { display:none; }
   #settings label { display:inline-flex; align-items:center; gap:6px; margin:6px 14px 6px 0; }
   #settings input { width:72px; padding:5px 7px; }
   #settings .hint { display:block; color:#aaa; margin-top:6px; }
+  #qualityBox { position:absolute; top:12px; right:12px; z-index:3; min-width:148px;
+    padding:7px 9px; color:#fff; background:rgba(20,20,24,.9); border:1px solid #666;
+    border-radius:7px; font-size:13px; backdrop-filter:blur(6px); }
+  #qualityBox:focus { outline:2px solid #9147ff; }
+  #playerStats { position:absolute; top:12px; left:12px; z-index:3; max-width:65%; padding:7px 9px;
+    color:#eee; background:rgba(20,20,24,.82); border:1px solid #555; border-radius:7px;
+    font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; backdrop-filter:blur(6px); }
+  #playerStats[hidden] { display:none; }
+  #suggestions { position:absolute; top:calc(100% - 1px); left:20px; right:20px; z-index:8;
+    max-height:360px; overflow:auto; border:1px solid #444; border-radius:0 0 8px 8px;
+    background:#18181b; box-shadow:0 10px 24px rgba(0,0,0,.45); }
+  #suggestions[hidden] { display:none; }
+  .suggestion { display:flex; justify-content:space-between; gap:12px; width:100%; padding:10px 12px;
+    color:#fff; background:transparent; border:0; border-bottom:1px solid #303035; text-align:left; }
+  .suggestion:hover { background:#303036; }.suggestion small { color:#aaa; white-space:nowrap; }
 </style>
 </head>
 <body>
 <header>
   <strong>StreamBridge</strong>
   <input id="smartInput" placeholder="Link veya kanal adı yapıştır — twitch / kick / youtube otomatik tanınır">
+  <div id="suggestions" hidden role="listbox" aria-label="Platform önerileri"></div>
   <button onclick="playSmart()">Oynat</button>
   <select id="platform">
     <option value="kick">Kick</option>
@@ -58,11 +73,14 @@
   <button id="saveSettings" type="button">Kaydet</button>
   <span class="hint">Varsayılan mevcut davranışı korur. Stabil profil: 3/6 segment, 30 sn ileri ve 60 sn geri tampon.</span>
 </section>
-<video id="video" controls autoplay muted></video>
+<div id="playerShell"><video id="video" controls autoplay muted></video><div id="playerStats" aria-live="polite" hidden></div><select id="qualityBox" aria-label="Çözünürlük ve kalite" hidden><option value="master">Otomatik kalite</option></select></div>
 
 <script>
 const $ = id => document.getElementById(id);
 let hls = null;
+let currentStream = null;
+let suggestionTimer = null;
+let statsTimer = null;
 const HLS_DEFAULT = { profile: 'default', liveSync: 3, liveMax: '', maxBuffer: '', backBuffer: '' };
 const HLS_STABLE = { profile: 'stable', liveSync: 3, liveMax: 6, maxBuffer: 30, backBuffer: 60 };
 
@@ -98,6 +116,21 @@ function hlsConfig() {
   const backBuffer = Number(s.backBuffer);
   if (backBuffer > 0) config.backBufferLength = backBuffer;
   return config;
+}
+function updatePlayerStats() {
+  const box = $('playerStats'), video = $('video');
+  if (!hls || !currentStream) { box.hidden = true; return; }
+  const level = hls.levels?.[hls.currentLevel] || hls.levels?.[hls.loadLevel] || null;
+  const quality = level ? `${level.height || '?'}p · ${Math.round((level.bitrate || 0) / 1000)} kbps` : 'Otomatik';
+  const buffered = video.buffered.length ? Math.max(0, video.buffered.end(video.buffered.length - 1) - video.currentTime) : 0;
+  const latency = Number.isFinite(hls.latency) ? `${hls.latency.toFixed(1)} sn` : '—';
+  const viewers = currentStream.viewers ? `${Number(currentStream.viewers).toLocaleString('tr-TR')} izleyici` : 'izleyici: —';
+  const selected = $('qualityBox').selectedOptions[0]?.textContent || 'Otomatik kalite';
+  box.textContent = `Seçim: ${selected} | Akış: ${quality} | Tampon: ${buffered.toFixed(1)} sn | Gecikme: ${latency} | ${viewers}`;
+  box.hidden = false;
+}
+function startPlayerStats() {
+  clearInterval(statsTimer); updatePlayerStats(); statsTimer = setInterval(updatePlayerStats, 1000);
 }
 
 /* ---------- AKILLI LINK COZUMLEME ---------- */
@@ -141,6 +174,47 @@ async function playSmart(text) {
 $("smartInput").addEventListener("keydown", e => {
   if (e.key === "Enter") playSmart();
 });
+$("smartInput").addEventListener("input", () => {
+  clearTimeout(suggestionTimer);
+  suggestionTimer = setTimeout(updateSuggestions, 280);
+});
+$("smartInput").addEventListener("blur", () => setTimeout(() => { $("suggestions").hidden = true; }, 180));
+
+function platformSearchUrl(platform, query) {
+  const encoded = encodeURIComponent(query);
+  return platform === 'bilibili' ? `https://search.bilibili.com/all?keyword=${encoded}`
+    : `https://www.dailymotion.com/search/${encoded}/videos`;
+}
+async function updateSuggestions() {
+  const query = $("smartInput").value.trim();
+  const box = $("suggestions");
+  box.replaceChildren();
+  if (query.length < 2) { box.hidden = true; return; }
+  let found = [];
+  try {
+    const response = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}&limit=20`);
+    if (response.ok) found = (await response.json()).results || [];
+  } catch (_) {}
+  const fallback = ['twitch', 'kick', 'youtube', 'bilibili', 'dailymotion'].map(platform => ({
+    platform, channel: query, title: `${platform} üzerinde “${query}” ara`, external: ['bilibili', 'dailymotion'].includes(platform)
+  }));
+  const unique = [...found, ...fallback].filter((item, index, all) =>
+    index === all.findIndex(other => other.platform === item.platform && other.channel === item.channel)).slice(0, 20);
+  unique.forEach(item => {
+    const button = document.createElement('button');
+    button.className = 'suggestion'; button.type = 'button'; button.setAttribute('role', 'option');
+    button.append(document.createTextNode(item.title || item.channel));
+    const tag = document.createElement('small'); tag.textContent = item.platform; button.appendChild(tag);
+    button.addEventListener('mousedown', event => event.preventDefault());
+    button.addEventListener('click', () => {
+      box.hidden = true;
+      if (item.external) { window.open(platformSearchUrl(item.platform, item.channel), '_blank', 'noopener'); return; }
+      $("platform").value = item.platform; $("channel").value = item.channel; $("smartInput").value = item.channel; loadStream();
+    });
+    box.appendChild(button);
+  });
+  box.hidden = unique.length === 0;
+}
 
 // Sayfa ?url= ile acildiysa (tarayici eklentisi buraya yonlendirir) otomatik oynat
 // Sayfa parametre ile acildiysa (tarayici eklentisi buraya yonlendirir) otomatik oynat
@@ -209,25 +283,29 @@ async function loadStream() {
   const r = await fetch(`/api/stream/${p}/${c}`);
   if (!r.ok) { $("status").textContent = "Yayın bulunamadı / çevrimdışı."; return; }
   const info = await r.json();
+  currentStream = info;
   setStatus(`● CANLI ${info.title ?? ""} ` +
     (info.ads_filtered ? "— reklam filtresi AKTİF" : "— reklamsız kaynak"), true);
 
-  $("variantBar").replaceChildren();
-  for (const v of info.variants ?? []) {
-    const b = document.createElement("button");
-    b.textContent = v.quality;
-    b.onclick = () => play(`/api/hls/media?url=${encodeURIComponent(v.url)}`, b);
-    $("variantBar").appendChild(b);
-  }
+  const quality = $('qualityBox');
+  quality.replaceChildren();
+  const auto = document.createElement('option'); auto.value = 'master'; auto.textContent = 'Otomatik kalite'; quality.appendChild(auto);
+  (info.variants || []).forEach((variant, index) => {
+    const option = document.createElement('option'); option.value = String(index); option.textContent = variant.quality || `Kalite ${index + 1}`; quality.appendChild(option);
+  });
+  quality.hidden = false;
   play(info.master_playlist);
 }
 
-function play(url, btn) {
-  if (btn) {
-    document.querySelectorAll("#variantBar button")
-      .forEach(x => x.classList.remove("active"));
-    btn.classList.add("active");
-  }
+$('qualityBox').addEventListener('change', event => {
+  if (!currentStream) return;
+  const index = event.target.value;
+  if (index === 'master') return play(currentStream.master_playlist);
+  const variant = currentStream.variants?.[Number(index)];
+  if (variant?.url) play(`/api/hls/media?url=${encodeURIComponent(variant.url)}`);
+});
+
+function play(url) {
   const video = $("video");
   if (hls) hls.destroy();
   if (Hls.isSupported()) {
@@ -240,6 +318,7 @@ function play(url, btn) {
     });
     hls.loadSource(url);
     hls.attachMedia(video);
+    startPlayerStats();
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = url;
   }

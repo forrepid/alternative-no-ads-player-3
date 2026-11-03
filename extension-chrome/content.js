@@ -15,6 +15,7 @@
   let lastUrl = location.href;
   let suppressionTimer = null;
   let playerSettings = { ...DEFAULT_HLS_SETTINGS };
+  let shadowStatsTimer = null;
   const suppressedElements = new Set();
   const suppressedMedia = new Map();
   const suppressMediaEvent = event => {
@@ -140,6 +141,8 @@
   function destroyHls() {
     if (hls) hls.destroy();
     hls = null;
+    if (shadowStatsTimer) window.clearInterval(shadowStatsTimer);
+    shadowStatsTimer = null;
   }
 
   function getHlsConfig() {
@@ -226,9 +229,12 @@
         gap:10px;padding:9px 12px;background:linear-gradient(rgba(0,0,0,.82),transparent)}
       .brand{font-weight:750;color:#bf94ff}.status{flex:1;overflow:hidden;
         text-overflow:ellipsis;white-space:nowrap}.status.error{color:#ff7b7b}
+      .stats{position:absolute;left:12px;bottom:48px;z-index:3;max-width:70%;padding:6px 8px;
+        color:#eee;background:rgba(12,12,15,.8);border:1px solid #555;border-radius:6px;
+        font:11px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
       select,button{border:1px solid #555;border-radius:6px;background:#242429;color:#fff;
         padding:5px 8px;font:inherit;cursor:pointer}button:hover,select:hover{background:#38383f}
-    </style><div class="shell"><video controls autoplay muted playsinline></video><div class="bar">
+    </style><div class="shell"><video controls autoplay muted playsinline></video><div class="stats">İstatistik hazırlanıyor…</div><div class="bar">
       <span class="brand">StreamBridge</span><span class="status">Yayın bilgisi alınıyor…</span>
       <select class="quality" title="Kalite"><option value="-1">Otomatik</option></select>
       <button class="return" type="button">Platforma dön</button></div></div>`;
@@ -238,6 +244,20 @@
     const status = root.querySelector('.status');
     status.textContent = text;
     status.classList.toggle('error', error);
+  }
+
+  function startShadowStats(root, video, stream) {
+    const box = root.querySelector('.stats');
+    if (shadowStatsTimer) window.clearInterval(shadowStatsTimer);
+    const render = () => {
+      if (!hls) return;
+      const level = hls.levels?.[hls.currentLevel] || hls.levels?.[hls.loadLevel];
+      const buffer = video.buffered.length ? Math.max(0, video.buffered.end(video.buffered.length - 1) - video.currentTime) : 0;
+      const latency = Number.isFinite(hls.latency) ? `${hls.latency.toFixed(1)} sn` : '—';
+      const quality = level ? `${level.height || '?'}p · ${Math.round((level.bitrate || 0) / 1000)} kbps` : 'Otomatik';
+      box.textContent = `Akış: ${quality} | Tampon: ${buffer.toFixed(1)} sn | Gecikme: ${latency} | ${stream.title || stream.channel || ''}`;
+    };
+    render(); shadowStatsTimer = window.setInterval(render, 1000);
   }
 
   function backgroundLocalJson(path) {
@@ -324,6 +344,7 @@
         });
         hls.loadSource(source);
         hls.attachMedia(video);
+        startShadowStats(root, video, stream);
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         root.querySelector('.quality').hidden = true;
         video.src = source;
