@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 
@@ -12,9 +13,10 @@ from app.providers.base import BaseProvider
 
 log = logging.getLogger("provider.youtube")
 
-HLS_RE = re.compile(r'"hlsManifestUrl"\s*:\s*"([^"]+)"')
+HLS_RE = re.compile(r'"hlsManifestUrl"\s*:\s*"((?:\\.|[^"\\])*)"')
 TITLE_RE = re.compile(r'"title"\s*:\s*"([^"]+)"')
-LIVE_RE = re.compile(r'"isLive"\s*:\s*true')
+LIVE_RE = re.compile(r'"(?:isLive|isLiveContent)"\s*:\s*true')
+CHANNEL_ID_RE = re.compile(r"UC[\w-]{22}$")
 
 
 class YouTubeProvider(BaseProvider):
@@ -35,6 +37,10 @@ class YouTubeProvider(BaseProvider):
         vid = self._video_id(channel)
         if vid:
             url = f"https://www.youtube.com/watch?v={vid}"
+        elif CHANNEL_ID_RE.fullmatch(channel):
+            # UC... bir kanal kimliğidir; @handle değildir. @UC.../live
+            # isteği HTML döndürse bile canlı akış bilgisini içermez.
+            url = f"https://www.youtube.com/channel/{channel}/live"
         else:
             handle = channel.lstrip("@")
             url = f"https://www.youtube.com/@{handle}/live"
@@ -44,7 +50,7 @@ class YouTubeProvider(BaseProvider):
     async def get_status(self, channel: str) -> ChannelStatus:
         try:
             html = await self._fetch_page(channel)
-            is_live = bool(LIVE_RE.search(html)) and bool(HLS_RE.search(html))
+            is_live = bool(HLS_RE.search(html)) and bool(LIVE_RE.search(html))
             title_m = TITLE_RE.search(html)
             return ChannelStatus(
                 platform=Platform.youtube,
@@ -63,15 +69,18 @@ class YouTubeProvider(BaseProvider):
             m = HLS_RE.search(html)
             if not m:
                 return info
-            hls_url = m.group(1).encode().decode("unicode_escape")
+            # YouTube player response içindeki URL JSON-string olarak escape
+            # edilir (\\/ ve \\u0026 dahil). json.loads bunları doğru çözer.
+            hls_url = json.loads(f'"{m.group(1)}"')
             title_m = TITLE_RE.search(html)
+            playlist = await http.get_text(hls_url)
+            if "#EXTM3U" not in playlist:
+                info.error = "YouTube geçerli bir HLS oynatma listesi döndürmedi"
+                return info
             info.is_live = True
             info.title = title_m.group(1) if title_m else None
             info.master_playlist = proxy_url("/api/hls/master", hls_url)
-            try:
-                info.variants = parse_variants(await http.get_text(hls_url), hls_url)
-            except Exception as exc:  # noqa: BLE001
-                log.info("youtube variants unavailable for %s: %s", channel, exc)
+            info.variants = parse_variants(playlist, hls_url)
             return info
         except Exception as exc:  # noqa: BLE001
             info.error = str(exc)

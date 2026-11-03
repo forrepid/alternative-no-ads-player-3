@@ -85,14 +85,21 @@ async def status_all(channel: str = Query(...)):
 async def stream(platform: Platform, channel: str):
     info = await get_provider(platform).get_stream(_valid_channel(channel))
     if not info.is_live:
-        raise HTTPException(404, detail="channel offline or stream unavailable")
+        raise HTTPException(
+            404,
+            detail=info.error or "channel offline or stream unavailable",
+        )
     return info
 
 
 @router.get("/hls/master", response_class=PlainTextResponse)
 async def hls_master(url: str = Query(...)):
     url = await validate_proxy_url(url)
-    body = await http.get_proxy_text(url)
+    try:
+        body = await http.get_proxy_text(url)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("master playlist upstream error: %s", exc)
+        raise HTTPException(502, detail="upstream master playlist unavailable") from exc
     rewritten = rewrite_master_playlist(body, url, "/api/hls/media")
     return PlainTextResponse(rewritten,
                              media_type="application/vnd.apple.mpegurl")

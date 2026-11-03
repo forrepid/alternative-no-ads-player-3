@@ -1,4 +1,3 @@
-import json as _json
 import logging
 import time
 from urllib.parse import quote
@@ -188,7 +187,10 @@ class TwitchProvider(BaseProvider):
         if not token_data:
             info.error = "playback access token alinamadi"
             return info
-        token = quote(_json.dumps(token_data["value"]))
+        # GQL, value alanini zaten JSON metni olarak dondurur. Yeniden
+        # json.dumps yapmak token'i JSON-string'e cevirir ("{\\\"...}") ve
+        # Usher bunu nauth token olarak okuyamaz; sonucu 403 olur.
+        token = quote(token_data["value"], safe="")
         sig = token_data["signature"]
         usher = (
             f"https://usher.ttvnw.net/api/channel/hls/{channel}.m3u8"
@@ -197,14 +199,20 @@ class TwitchProvider(BaseProvider):
             "&player_backend=mediaplayer&playlist_include_framerate=true"
             "&supported_codecs=h264"
         )
-        info.is_live = True
-        # BUGFIX(v2): token icindeki & karakterleri query'yi bozmasin
-        info.master_playlist = proxy_url("/api/hls/master", usher)
         try:
-            info.variants = parse_variants(await http.get_text(usher), usher)
+            playlist = await http.get_text(usher)
+            if "#EXTM3U" not in playlist:
+                info.error = "Twitch geçerli bir HLS oynatma listesi döndürmedi"
+                return info
+            info.variants = parse_variants(playlist, usher)
         except Exception as exc:  # noqa: BLE001
-            # Oynatma listesi bazen sadece oynatma aninda erisilebilir; ana URL yine gecerlidir.
-            log.info("twitch variants unavailable for %s: %s", channel, exc)
+            # Geçersiz bir master URL'yi istemciye vermek yerine anlaşılır bir
+            # hata döndürürüz. Böylece player sonsuz yükleme durumunda kalmaz.
+            log.warning("twitch master unavailable for %s: %s", channel, exc)
+            info.error = "Twitch HLS listesine erişilemedi"
+            return info
+        info.is_live = True
+        info.master_playlist = proxy_url("/api/hls/master", usher)
         info.ads_filtered = settings.ad_filter_enabled
         return info
 
