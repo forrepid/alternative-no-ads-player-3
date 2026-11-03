@@ -21,6 +21,12 @@
   #variantBar { padding:6px 20px; display:flex; gap:8px; flex-wrap:wrap; }
   #variantBar button { background:#26262c; font-weight:400; }
   #variantBar button.active { background:#9147ff; }
+  #settings { margin:0 20px 10px; padding:12px; max-width:720px; border:1px solid #333;
+    border-radius:8px; background:#18181b; font-size:13px; }
+  #settings[hidden] { display:none; }
+  #settings label { display:inline-flex; align-items:center; gap:6px; margin:6px 14px 6px 0; }
+  #settings input { width:72px; padding:5px 7px; }
+  #settings .hint { display:block; color:#aaa; margin-top:6px; }
 </style>
 </head>
 <body>
@@ -36,20 +42,70 @@
   <input id="channel" placeholder="kanal adi / @handle / video id" size="28">
   <button onclick="loadStream()">Izle</button>
   <button onclick="checkStatus()">Durum</button>
+  <button id="settingsToggle" type="button">Ayarlar</button>
 </header>
 <div id="status"></div>
 <div id="variantBar"></div>
+<section id="settings" hidden aria-label="Oynatma ayarları">
+  <strong>Oynatma ayarları</strong>
+  <label>Profil
+    <select id="hlsProfile"><option value="default">Varsayılan</option><option value="stable">Stabil</option><option value="custom">Kişisel</option></select>
+  </label>
+  <label>Canlı senkron (segment) <input id="liveSync" type="number" min="1" max="10" step="1"></label>
+  <label>Azami gecikme (segment) <input id="liveMax" type="number" min="2" max="20" step="1"></label>
+  <label>İleri tampon (sn) <input id="maxBuffer" type="number" min="5" max="120" step="1"></label>
+  <label>Geri tampon (sn) <input id="backBuffer" type="number" min="10" max="300" step="1"></label>
+  <button id="saveSettings" type="button">Kaydet</button>
+  <span class="hint">Varsayılan mevcut davranışı korur. Stabil profil: 3/6 segment, 30 sn ileri ve 60 sn geri tampon.</span>
+</section>
 <video id="video" controls autoplay muted></video>
 
 <script>
 const $ = id => document.getElementById(id);
 let hls = null;
+const HLS_DEFAULT = { profile: 'default', liveSync: 3, liveMax: '', maxBuffer: '', backBuffer: '' };
+const HLS_STABLE = { profile: 'stable', liveSync: 3, liveMax: 6, maxBuffer: 30, backBuffer: 60 };
+
+function readHlsSettings() {
+  try { return { ...HLS_DEFAULT, ...JSON.parse(localStorage.getItem('streambridge.hlsSettings') || '{}') }; }
+  catch (_) { return { ...HLS_DEFAULT }; }
+}
+function writeHlsSettings(settings) {
+  localStorage.setItem('streambridge.hlsSettings', JSON.stringify(settings));
+}
+function renderHlsSettings() {
+  const settings = readHlsSettings();
+  $('hlsProfile').value = settings.profile;
+  $('liveSync').value = settings.liveSync;
+  $('liveMax').value = settings.liveMax;
+  $('maxBuffer').value = settings.maxBuffer;
+  $('backBuffer').value = settings.backBuffer;
+}
+function applyProfile(profile) {
+  const values = profile === 'stable' ? HLS_STABLE : HLS_DEFAULT;
+  $('liveSync').value = values.liveSync;
+  $('liveMax').value = values.liveMax;
+  $('maxBuffer').value = values.maxBuffer;
+  $('backBuffer').value = values.backBuffer;
+}
+function hlsConfig() {
+  const s = readHlsSettings();
+  const config = { enableWorker: true, lowLatencyMode: false, liveSyncDurationCount: Number(s.liveSync) || 3 };
+  const liveMax = Number(s.liveMax);
+  if (liveMax > config.liveSyncDurationCount) config.liveMaxLatencyDurationCount = liveMax;
+  const maxBuffer = Number(s.maxBuffer);
+  if (maxBuffer > 0) { config.maxBufferLength = maxBuffer; config.maxMaxBufferLength = Math.max(maxBuffer * 2, 60); }
+  const backBuffer = Number(s.backBuffer);
+  if (backBuffer > 0) config.backBufferLength = backBuffer;
+  return config;
+}
 
 /* ---------- AKILLI LINK COZUMLEME ---------- */
 
-async function detectLivePlatform(channel) {
-  // Duz kanal adi verildiyse: once Twitch, sonra Kick canli mi diye bak
-  for (const p of ["twitch", "kick"]) {
+async function detectLivePlatform(channel, preferredPlatform) {
+  // Düz kanal adında kullanıcının seçimi önceliklidir; sonra diğer platform denenir.
+  const platforms = [preferredPlatform, ...["twitch", "kick"].filter(p => p !== preferredPlatform)];
+  for (const p of platforms) {
     try {
       const s = await fetch(`/api/status/${p}/${channel}`).then(x => x.json());
       if (s.is_live) return p;
@@ -68,7 +124,7 @@ async function playSmart(text) {
   const r = await res.json();
 
   let platform = r.platform;
-  if (platform === "auto") platform = await detectLivePlatform(r.channel);
+  if (platform === "auto") platform = await detectLivePlatform(r.channel, $("platform").value);
 
   // VOD linkleri simdilik desteklenmiyor
   if (r.kind === "video" && platform !== "youtube") {
@@ -89,6 +145,16 @@ $("smartInput").addEventListener("keydown", e => {
 // Sayfa ?url= ile acildiysa (tarayici eklentisi buraya yonlendirir) otomatik oynat
 // Sayfa parametre ile acildiysa (tarayici eklentisi buraya yonlendirir) otomatik oynat
 window.addEventListener("DOMContentLoaded", () => {
+  renderHlsSettings();
+  $('settingsToggle').addEventListener('click', () => { $('settings').hidden = !$('settings').hidden; });
+  $('hlsProfile').addEventListener('change', event => applyProfile(event.target.value));
+  $('saveSettings').addEventListener('click', () => {
+    const profile = $('hlsProfile').value;
+    const saved = { profile, liveSync: $('liveSync').value, liveMax: $('liveMax').value,
+      maxBuffer: $('maxBuffer').value, backBuffer: $('backBuffer').value };
+    writeHlsSettings(saved);
+    setStatus('Oynatma ayarları kaydedildi. Bir sonraki yayında uygulanır.');
+  });
   const q = new URLSearchParams(location.search);
   const pUrl = q.get("url");
   const pPlatform = q.get("platform");
@@ -165,7 +231,13 @@ function play(url, btn) {
   const video = $("video");
   if (hls) hls.destroy();
   if (Hls.isSupported()) {
-    hls = new Hls({ liveSyncDurationCount: 3, enableWorker: true });
+    hls = new Hls(hlsConfig());
+    hls.on(Hls.Events.ERROR, (_, data) => {
+      if (!data.fatal || !hls) return;
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+      else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+      else setStatus(`Oynatma hatası: ${data.details || 'bilinmeyen hata'}`);
+    });
     hls.loadSource(url);
     hls.attachMedia(video);
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {

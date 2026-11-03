@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "StreamBridge - Reklamsız İzle",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Twitch, Kick ve YouTube yayınlarını StreamBridge üzerinden reklamsız izle.",
   "permissions": ["storage", "contextMenus", "declarativeNetRequest", "nativeMessaging"],
   "host_permissions": [

@@ -3,7 +3,9 @@
   if (window.top !== window) return;
 
   const SERVER = 'http://localhost:8080';
-  const IDS = { button: 'sb-toggle-btn', mode: 'sb-player-mode', player: 'sb-player-wrap' };
+  const IDS = { button: 'sb-toggle-btn', mode: 'sb-player-mode', settings: 'sb-player-settings', player: 'sb-player-wrap' };
+  const DEFAULT_HLS_SETTINGS = { profile: 'default', liveSync: 3, liveMax: 0, maxBuffer: 0, backBuffer: 30 };
+  const STABLE_HLS_SETTINGS = { profile: 'stable', liveSync: 3, liveMax: 6, maxBuffer: 30, backBuffer: 60 };
   let active = false;
   let original = null;
   let originalDisplay = '';
@@ -12,6 +14,7 @@
   let hls = null;
   let lastUrl = location.href;
   let suppressionTimer = null;
+  let playerSettings = { ...DEFAULT_HLS_SETTINGS };
   const suppressedElements = new Set();
   const suppressedMedia = new Map();
   const suppressMediaEvent = event => {
@@ -137,6 +140,27 @@
   function destroyHls() {
     if (hls) hls.destroy();
     hls = null;
+  }
+
+  function getHlsConfig() {
+    const config = {
+      liveSyncDurationCount: Number(playerSettings.liveSync) || 3,
+      enableWorker: true,
+      lowLatencyMode: false,
+      backBufferLength: Number(playerSettings.backBuffer) || 30,
+      fetchSetup: (context, init) => {
+        try { return new Request(context.url, { ...init, targetAddressSpace: 'local' }); }
+        catch (_) { return new Request(context.url, init); }
+      }
+    };
+    const liveMax = Number(playerSettings.liveMax);
+    if (liveMax > config.liveSyncDurationCount) config.liveMaxLatencyDurationCount = liveMax;
+    const maxBuffer = Number(playerSettings.maxBuffer);
+    if (maxBuffer > 0) {
+      config.maxBufferLength = maxBuffer;
+      config.maxMaxBufferLength = Math.max(maxBuffer * 2, 60);
+    }
+    return config;
   }
 
   function closePlayer(update = true) {
@@ -278,18 +302,7 @@
       setStatus(root, stream.title || `${info.platform} / ${info.id}`);
 
       if (globalThis.Hls?.isSupported()) {
-        hls = new globalThis.Hls({
-          liveSyncDurationCount: 3,
-          enableWorker: true,
-          backBufferLength: 30,
-          fetchSetup: (context, init) => {
-            try {
-              return new Request(context.url, { ...init, targetAddressSpace: 'local' });
-            } catch (_) {
-              return new Request(context.url, init);
-            }
-          }
-        });
+        hls = new globalThis.Hls(getHlsConfig());
         hls.on(globalThis.Hls.Events.MANIFEST_PARSED, (_, data) => {
           const quality = root.querySelector('.quality');
           data.levels.forEach((level, index) => {
@@ -385,13 +398,19 @@
     button.id = IDS.button;
     button.type = 'button';
     button.addEventListener('click', () => active ? closePlayer() : openPlayer(watchInfo()));
-    document.body.append(select, button);
+    const settings = document.createElement('button');
+    settings.id = IDS.settings;
+    settings.type = 'button';
+    settings.textContent = '⚙ Ayarlar';
+    settings.addEventListener('click', openSettings);
+    document.body.append(select, button, settings);
     updateButton();
   }
 
   function removeControls() {
     document.getElementById(IDS.button)?.remove();
     document.getElementById(IDS.mode)?.remove();
+    document.getElementById(IDS.settings)?.remove();
     if (active) closePlayer();
   }
 
@@ -418,9 +437,40 @@
     setTimeout(() => node.remove(), 3500);
   }
 
-  chrome.storage.local.get({ playerMode: 'local_iframe' }, stored => {
+  function openSettings() {
+    document.getElementById('sb-settings-panel')?.remove();
+    const panel = document.createElement('section');
+    panel.id = 'sb-settings-panel';
+    panel.innerHTML = `<strong>StreamBridge oynatma ayarları</strong>
+      <label>Profil <select data-key="profile"><option value="default">Varsayılan</option><option value="stable">Stabil</option><option value="custom">Kişisel</option></select></label>
+      <label>Canlı senkron <input data-key="liveSync" type="number" min="1" max="10"></label>
+      <label>Azami gecikme <input data-key="liveMax" type="number" min="0" max="20"></label>
+      <label>İleri tampon (sn) <input data-key="maxBuffer" type="number" min="0" max="120"></label>
+      <label>Geri tampon (sn) <input data-key="backBuffer" type="number" min="10" max="300"></label>
+      <small>Stabil: 3/6 segment, 30 sn ileri ve 60 sn geri tampon. Yeni oynatmada uygulanır.</small>
+      <div><button data-action="save">Kaydet</button><button data-action="close">Kapat</button></div>`;
+    panel.querySelectorAll('[data-key]').forEach(field => { field.value = playerSettings[field.dataset.key]; });
+    panel.querySelector('[data-key="profile"]').addEventListener('change', event => {
+      const preset = event.target.value === 'stable' ? STABLE_HLS_SETTINGS : event.target.value === 'default' ? DEFAULT_HLS_SETTINGS : null;
+      if (!preset) return;
+      panel.querySelectorAll('[data-key]').forEach(field => { field.value = preset[field.dataset.key]; });
+    });
+    panel.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const next = {};
+      panel.querySelectorAll('[data-key]').forEach(field => { next[field.dataset.key] = field.dataset.key === 'profile' ? field.value : Number(field.value); });
+      playerSettings = { ...DEFAULT_HLS_SETTINGS, ...next };
+      chrome.storage.local.set({ playerHlsSettings: playerSettings });
+      panel.remove();
+      toast('Ayarlar kaydedildi; sonraki oynatmada uygulanacak.');
+    });
+    panel.querySelector('[data-action="close"]').addEventListener('click', () => panel.remove());
+    document.body.appendChild(panel);
+  }
+
+  chrome.storage.local.get({ playerMode: 'local_iframe', playerHlsSettings: DEFAULT_HLS_SETTINGS }, stored => {
     const modes = new Set(['local_iframe', 'local_shadow', 'standalone', 'hosted', 'native']);
     mode = modes.has(stored.playerMode) ? stored.playerMode : 'local_iframe';
+    playerSettings = { ...DEFAULT_HLS_SETTINGS, ...stored.playerHlsSettings };
     injectControls();
   });
   checkServer();
