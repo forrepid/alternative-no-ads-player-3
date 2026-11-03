@@ -15,6 +15,11 @@ AD_PATTERNS = [
 ]
 
 CUE_IN = re.compile(r"#EXT-X-CUE-IN")
+TWITCH_STITCHED_AD = re.compile(
+    r'#EXT-X-DATERANGE:.*CLASS="twitch-stitched-ad".*?DURATION=([0-9.]+)',
+    re.I,
+)
+EXTINF_DURATION = re.compile(r"#EXTINF:([0-9.]+)")
 
 
 def is_ad_line(line: str) -> bool:
@@ -77,6 +82,65 @@ def filter_media_playlist(body: str, base_url: str) -> tuple[str, int]:
 
         out.append(line)
 
+    return "\n".join(out) + "\n", removed
+
+
+def filter_twitch_stitched_ads(body: str, base_url: str) -> tuple[str, int]:
+    """Twitch SSAI reklamını, codec zaman çizgisini bozmadan atla.
+
+    Twitch reklamı tek bir DATERANGE etiketi ile başlar; onu izleyen birden
+    fazla kısa segment aynı reklam pod'una aittir. Eski "bir sonraki URI'yi
+    sil" yaklaşımı init map'i bırakıp ilk video segmentini düşürdüğü için
+    siyah ekran üretiyordu. Burada reklam süresi kadar *tam segment blokları*
+    (MAP/PDT/EXTINF/URI) kaldırılır. Yayın segmenti gelene kadar boş playlist
+    döner; hls.js yenileyerek ilk gerçek segmentte kendiliğinden başlar.
+    """
+    out: list[str] = []
+    pending: list[str] = []
+    removed = 0
+    ad_remaining = 0.0
+
+    for line in body.splitlines():
+        stripped = line.strip()
+        stitched = TWITCH_STITCHED_AD.search(stripped)
+        if stitched:
+            ad_remaining = max(ad_remaining, float(stitched.group(1)))
+            continue
+
+        # Reklam pod'una ait Twitch metadata satırları oynatıcıya gerekmez.
+        if ad_remaining > 0 and stripped.startswith("#EXT-X-DATERANGE"):
+            continue
+
+        if stripped and not stripped.startswith("#"):
+            duration = 0.0
+            for tag in pending:
+                match = EXTINF_DURATION.search(tag)
+                if match:
+                    duration = float(match.group(1))
+                    break
+            if ad_remaining > 0:
+                ad_remaining = max(0.0, ad_remaining - duration)
+                removed += 1
+                pending.clear()
+                continue
+            out.extend(
+                _rewrite_uri_attributes(tag, base_url) if 'URI="' in tag else tag
+                for tag in pending
+            )
+            out.append(proxy_url("/api/hls/segment", urljoin(base_url, stripped)))
+            pending.clear()
+            continue
+
+        # URI'den önce gelen segment bağlamını bekletiriz; bunun sayesinde
+        # reklamın MAP ve DISCONTINUITY satırları ile birlikte atılır.
+        if stripped.startswith(("#EXT-X-MAP", "#EXT-X-PROGRAM-DATE-TIME",
+                                "#EXTINF", "#EXT-X-DISCONTINUITY",
+                                "#EXT-X-BYTERANGE")):
+            pending.append(line)
+        else:
+            out.append(line)
+
+    # Sadece tamamlanmış segment blokları geçerlidir; yarım bloğu yayınlama.
     return "\n".join(out) + "\n", removed
 
 

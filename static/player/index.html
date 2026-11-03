@@ -333,6 +333,16 @@ function play(url) {
   if (hls) hls.destroy();
   if (Hls.isSupported()) {
     hls = new Hls(hlsConfig());
+    hls.on(Hls.Events.LEVEL_LOADED, (_, data) => {
+      // Twitch SSAI pod'u filtrelendiğinde playlist geçici olarak segmentsiz
+      // olur. Siyah/ad videosu göstermek yerine ilk gerçek yayın segmentini
+      // beklediğimizi açıkça belirt.
+      if (currentStream?.platform === 'twitch' && !(data.details?.fragments || []).length) {
+        setStatus('Twitch reklam bloğu atlanıyor — canlı yayın segmenti bekleniyor…');
+      } else if (currentStream) {
+        setStatus(`● CANLI ${currentStream.title ?? ''} — doğrudan yayın akışı`, true);
+      }
+    });
     hls.on(Hls.Events.ERROR, (_, data) => {
       if (!data.fatal || !hls) return;
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();

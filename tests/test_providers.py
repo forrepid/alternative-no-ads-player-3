@@ -4,9 +4,32 @@ from unittest.mock import AsyncMock, patch
 
 from app.providers.twitch import TwitchProvider
 from app.providers.youtube import YouTubeProvider
+from app.hls.filter import filter_twitch_stitched_ads
 
 
 class ProviderStreamTests(unittest.TestCase):
+    def test_twitch_stitched_ad_removes_full_segment_blocks(self):
+        playlist = """#EXTM3U
+#EXT-X-DATERANGE:ID="stitched-ad-1",CLASS="twitch-stitched-ad",DURATION=4.0
+#EXT-X-DISCONTINUITY
+#EXT-X-MAP:URI="ad-init.mp4"
+#EXTINF:2.0,Amazon ad
+ad-one.mp4
+#EXTINF:2.0,Amazon ad
+ad-two.mp4
+#EXT-X-DISCONTINUITY
+#EXT-X-MAP:URI="live-init.mp4"
+#EXTINF:2.0,Live
+live-one.mp4
+"""
+        filtered, removed = filter_twitch_stitched_ads(
+            playlist, "https://cdn.example/live.m3u8")
+        self.assertEqual(removed, 2)
+        self.assertNotIn("ad-one", filtered)
+        self.assertNotIn("ad-init", filtered)
+        self.assertIn("live-one", filtered)
+        self.assertIn("api/hls/segment", filtered)
+
     def test_twitch_uses_gql_token_value_without_double_json_encoding(self):
         provider = TwitchProvider()
         token = {
