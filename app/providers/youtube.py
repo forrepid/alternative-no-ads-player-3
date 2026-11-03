@@ -100,3 +100,59 @@ class YouTubeProvider(BaseProvider):
         except Exception as exc:  # noqa: BLE001
             info.error = str(exc)
             return info
+
+    async def search(self, query: str, limit: int = 20) -> list[dict]:
+        """YouTube arama sayfasındaki herkese açık sonuçlardan canlı/video
+        adaylarını çıkarır. API anahtarı yokken de çalışır; resmi Data API
+        anahtarı tanımlanmışsa ileride onunla değiştirilebilir."""
+        try:
+            from urllib.parse import quote_plus
+
+            html = await http.get_text(
+                f"https://www.youtube.com/results?search_query={quote_plus(query)}")
+            marker = "var ytInitialData = "
+            start = html.find(marker)
+            if start < 0:
+                return []
+            data, _ = json.JSONDecoder().raw_decode(html[start + len(marker):])
+        except Exception as exc:  # noqa: BLE001
+            log.info("youtube search unavailable: %s", exc)
+            return []
+
+        def text(value: dict | None) -> str:
+            if not value:
+                return ""
+            if "simpleText" in value:
+                return value["simpleText"]
+            return "".join(item.get("text", "") for item in value.get("runs", []))
+
+        found: list[dict] = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                renderer = node.get("videoRenderer")
+                if renderer and renderer.get("videoId"):
+                    badges = renderer.get("badges", []) + renderer.get("ownerBadges", [])
+                    live = any("LIVE" in str(badge).upper() for badge in badges)
+                    found.append({
+                        "platform": "youtube",
+                        "channel": renderer["videoId"],
+                        "title": text(renderer.get("title")) or renderer["videoId"],
+                        "is_live": live,
+                        "viewers": None,
+                        "thumbnail": None,
+                        "external": False,
+                    })
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(data)
+        unique: dict[str, dict] = {}
+        for item in found:
+            unique.setdefault(item["channel"], item)
+        results = list(unique.values())
+        results.sort(key=lambda item: (not item["is_live"], item["title"].lower()))
+        return results[:limit]

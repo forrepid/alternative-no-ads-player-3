@@ -38,6 +38,7 @@ class StreamInfo(BaseModel):
     title: str | None = None
     master_playlist: str | None = None        # proxied URL
     embed_url: str | None = None              # platformun resmi iframe oynatıcısı
+    fallback_embed_url: str | None = None     # HLS yüklenemezse güvenilir yedek
     variants: list[StreamVariant] = Field(default_factory=list)
     ads_filtered: bool = False
     # v2: opsiyonel alanlar (mevcut istemcileri bozmaz)

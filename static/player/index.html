@@ -81,6 +81,8 @@ let hls = null;
 let currentStream = null;
 let suggestionTimer = null;
 let statsTimer = null;
+let playbackTimer = null;
+let fragmentBuffered = false;
 const HLS_DEFAULT = { profile: 'default', liveSync: 3, liveMax: '', maxBuffer: '', backBuffer: '' };
 const HLS_STABLE = { profile: 'stable', liveSync: 3, liveMax: 6, maxBuffer: 30, backBuffer: 60 };
 
@@ -108,7 +110,8 @@ function applyProfile(profile) {
 }
 function hlsConfig() {
   const s = readHlsSettings();
-  const config = { enableWorker: true, lowLatencyMode: false, liveSyncDurationCount: Number(s.liveSync) || 3 };
+  const config = { enableWorker: true, lowLatencyMode: false, startPosition: -1,
+    liveSyncDurationCount: Number(s.liveSync) || 3 };
   const liveMax = Number(s.liveMax);
   if (liveMax > config.liveSyncDurationCount) config.liveMaxLatencyDurationCount = liveMax;
   const maxBuffer = Number(s.maxBuffer);
@@ -331,6 +334,8 @@ function play(url) {
   embed.removeAttribute('src');
   video.hidden = false;
   if (hls) hls.destroy();
+  clearTimeout(playbackTimer);
+  fragmentBuffered = false;
   if (Hls.isSupported()) {
     hls = new Hls(hlsConfig());
     hls.on(Hls.Events.LEVEL_LOADED, (_, data) => {
@@ -349,9 +354,18 @@ function play(url) {
       else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
       else setStatus(`Oynatma hatası: ${data.details || 'bilinmeyen hata'}`);
     });
+    hls.on(Hls.Events.FRAG_BUFFERED, () => { fragmentBuffered = true; });
     hls.loadSource(url);
     hls.attachMedia(video);
     startPlayerStats();
+    // HLS listesi/segmenti engellenirse kullanıcı siyah ekranda kalmasın.
+    // Yalnızca sunucunun sağladığı resmi Twitch yedeğine geçilir.
+    playbackTimer = setTimeout(() => {
+      if (!fragmentBuffered && currentStream?.fallback_embed_url) {
+        setStatus('Doğrudan HLS akışı yanıt vermedi; resmi Twitch oynatıcısına geçiliyor…');
+        playEmbed(currentStream.fallback_embed_url);
+      }
+    }, 15000);
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = url;
   }
@@ -368,7 +382,15 @@ function playEmbed(url) {
   video.hidden = true;
   $('playerStats').hidden = true;
   clearInterval(statsTimer);
-  embed.src = url;
+  clearTimeout(playbackTimer);
+  // Twitch parent parametresi, sayfanın bulunduğu alan adıyla eşleşmelidir.
+  if (url.includes('player.twitch.tv')) {
+    url = url.replace(/([?&])parent=[^&]*/, `$1parent=${encodeURIComponent(location.hostname)}`);
+  }
+  const separator = url.includes('?') ? '&' : '?';
+  // YouTube, embed isteklerinde çağıran origin bilgisini doğrular. Bu
+  // parametre localhost ve dağıtılmış sürümlerde otomatik doğru kalır.
+  embed.src = `${url}${separator}origin=${encodeURIComponent(location.origin)}`;
   embed.hidden = false;
 }
 </script>

@@ -213,6 +213,13 @@ class TwitchProvider(BaseProvider):
             return info
         info.is_live = True
         info.master_playlist = proxy_url("/api/hls/master", usher)
+        # HLS CDN veya filtreleme katmanı erişilemezse, Twitch'in desteklediği
+        # resmi gömülü oynatıcı yayın erişimini korur. parent değeri istemcide
+        # bulunduğu origin'e göre güncellenir.
+        info.fallback_embed_url = (
+            f"https://player.twitch.tv/?channel={channel}&parent=localhost"
+            "&autoplay=true&muted=true"
+        )
         info.ads_filtered = settings.ad_filter_enabled
         return info
 

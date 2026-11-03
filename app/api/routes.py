@@ -52,7 +52,17 @@ async def search_suggestions(q: str = Query(..., min_length=2, max_length=100),
                 "thumbnail": result.thumbnail,
                 "external": False,
             })
-    results.sort(key=lambda item: (not item["is_live"], -(item["viewers"] or 0), item["platform"]))
+    # YouTube genel arama sonuçları, kanal adı bire bir uyuşmasa dahi
+    # seçilebilir canlı/video adaylarını sağlar. Twitch/Kick genel arama
+    # resmi uygulama erişim anahtarı gerektirir; bu kurulumda önce tam kanal
+    # kontrolü ile güvenilir sonuç verilir.
+    youtube_results = await get_provider(Platform.youtube).search(query, limit)
+    results.extend(youtube_results)
+    unique: dict[tuple[str, str], dict] = {}
+    for item in results:
+        unique.setdefault((item["platform"], item["channel"]), item)
+    results = list(unique.values())
+    results.sort(key=lambda item: (not item["is_live"], -(item["viewers"] or 0), item["platform"], item["title"]))
     for platform in ("bilibili", "dailymotion"):
         results.append({
             "platform": platform,
