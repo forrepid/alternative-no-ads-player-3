@@ -10,7 +10,7 @@ from app.core.http import http
 from app.core.models import ChannelStatus, Platform, StreamInfo
 from app.core.proxy import validate_proxy_url
 from app.hls.filter import rewrite_master_playlist
-from app.hls.strategies import apply_strategy
+from app.hls.strategies import apply_strategy, strategy_none
 from app.providers import get_provider
 
 log = logging.getLogger("api")
@@ -114,7 +114,17 @@ async def hls_media(url: str = Query(...),
     body = await http.get_proxy_text(url)
     chosen = strategy or (
         settings.ad_filter_strategy if settings.ad_filter_enabled else "none")
-    filtered, removed = apply_strategy(chosen, body, url)
+    # Twitch'in SSAI reklam blokları ayrı bir init segmenti ve çoklu
+    # DATERANGE etiketi içerir. Segmentleri tek tek silmek, medya zaman
+    # çizgisini/codec init bilgisini bozup siyah ekrana yol açabiliyor.
+    # Bu durumda güvenli geri dönüş: orijinal playlist'i oynatmak.
+    # Böylece yayın başlar; platformun reklamı varsa resmi akıştaki gibi
+    # oynatılır, bozuk veya boş video oluşmaz.
+    if ".ttvnw.net" in url.lower() and chosen != "none":
+        filtered, removed = strategy_none(body, url)
+        log.info("twitch SSAI playlist preserved to keep media timeline valid")
+    else:
+        filtered, removed = apply_strategy(chosen, body, url)
     if removed:
         log.info("ad-filter[%s]: %d segment removed from %s",
                  chosen, removed, url[:80])

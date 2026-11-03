@@ -37,6 +37,7 @@ class StreamInfo(BaseModel):
     is_live: bool
     title: str | None = None
     master_playlist: str | None = None        # proxied URL
+    embed_url: str | None = None              # platformun resmi iframe oynatıcısı
     variants: list[StreamVariant] = Field(default_factory=list)
     ads_filtered: bool = False
     # v2: opsiyonel alanlar (mevcut istemcileri bozmaz)

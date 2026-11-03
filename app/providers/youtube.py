@@ -17,6 +17,7 @@ HLS_RE = re.compile(r'"hlsManifestUrl"\s*:\s*"((?:\\.|[^"\\])*)"')
 TITLE_RE = re.compile(r'"title"\s*:\s*"([^"]+)"')
 LIVE_RE = re.compile(r'"(?:isLive|isLiveContent)"\s*:\s*true')
 CHANNEL_ID_RE = re.compile(r"UC[\w-]{22}$")
+VIDEO_ID_RE = re.compile(r'"videoId"\s*:\s*"([\w-]{11})"')
 
 
 class YouTubeProvider(BaseProvider):
@@ -68,6 +69,20 @@ class YouTubeProvider(BaseProvider):
             html = await self._fetch_page(channel)
             m = HLS_RE.search(html)
             if not m:
+                # YouTube bazı canlı yayınlarda HLS manifestini ziyaretçiye
+                # vermez; yalnızca ayrık ses/video DASH formatlarını döndürür.
+                # Bunları tek bir <video> etiketiyle güvenilir birleştirmek
+                # mümkün değildir. Resmi embed oynatıcı bu yayınları destekler.
+                video_id = VIDEO_ID_RE.search(html)
+                if LIVE_RE.search(html) and video_id:
+                    info.is_live = True
+                    info.title = (TITLE_RE.search(html).group(1)
+                                  if TITLE_RE.search(html) else None)
+                    info.embed_url = (
+                        f"https://www.youtube.com/embed/{video_id.group(1)}"
+                        "?autoplay=1&mute=1&playsinline=1"
+                    )
+                    info.source = "youtube_embed"
                 return info
             # YouTube player response içindeki URL JSON-string olarak escape
             # edilir (\\/ ve \\u0026 dahil). json.loads bunları doğru çözer.

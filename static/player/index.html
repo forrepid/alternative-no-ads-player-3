@@ -17,7 +17,7 @@
   #smartInput { flex:1; min-width:280px; }
   #status { padding:8px 20px; font-size:13px; color:#aaa; }
   #status .live { color:#eb0400; font-weight:700; }
-  video { width:100%; max-height:calc(100vh - 120px); background:#000; }
+  video, #embedPlayer { width:100%; height:auto; aspect-ratio:16/9; max-height:calc(100vh - 120px); border:0; background:#000; }
   #variantBar { display:none; }
   #playerShell { position:relative; background:#000; }
   #settings { margin:0 20px 10px; padding:12px; max-width:720px; border:1px solid #333;
@@ -73,7 +73,7 @@
   <button id="saveSettings" type="button">Kaydet</button>
   <span class="hint">Varsayılan mevcut davranışı korur. Stabil profil: 3/6 segment, 30 sn ileri ve 60 sn geri tampon.</span>
 </section>
-<div id="playerShell"><video id="video" controls autoplay muted></video><div id="playerStats" aria-live="polite" hidden></div><select id="qualityBox" aria-label="Çözünürlük ve kalite" hidden><option value="master">Otomatik kalite</option></select></div>
+<div id="playerShell"><video id="video" controls autoplay muted></video><iframe id="embedPlayer" hidden title="Platform player" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe><div id="playerStats" aria-live="polite" hidden></div><select id="qualityBox" aria-label="Çözünürlük ve kalite" hidden><option value="master">Otomatik kalite</option></select></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -301,7 +301,7 @@ async function loadStream() {
   const info = await r.json();
   currentStream = info;
   setStatus(`● CANLI ${info.title ?? ""} ` +
-    (info.ads_filtered ? "— reklam filtresi AKTİF" : "— reklamsız kaynak"), true);
+    (info.embed_url ? "— platform oynatıcısı" : info.ads_filtered ? "— reklam filtresi AKTİF" : "— doğrudan kaynak"), true);
 
   const quality = $('qualityBox');
   quality.replaceChildren();
@@ -311,8 +311,9 @@ async function loadStream() {
     option.textContent = `${variant.quality || `Kalite ${index + 1}`}${variant.bandwidth ? ` · ${Math.round(variant.bandwidth / 1000)} kbps` : ''}`;
     quality.appendChild(option);
   });
-  quality.hidden = false;
-  play(info.master_playlist);
+  quality.hidden = Boolean(info.embed_url);
+  if (info.embed_url) playEmbed(info.embed_url);
+  else play(info.master_playlist);
 }
 
 $('qualityBox').addEventListener('change', event => {
@@ -325,6 +326,10 @@ $('qualityBox').addEventListener('change', event => {
 
 function play(url) {
   const video = $("video");
+  const embed = $('embedPlayer');
+  embed.hidden = true;
+  embed.removeAttribute('src');
+  video.hidden = false;
   if (hls) hls.destroy();
   if (Hls.isSupported()) {
     hls = new Hls(hlsConfig());
@@ -341,6 +346,20 @@ function play(url) {
     video.src = url;
   }
   video.play().catch(() => {});
+}
+
+function playEmbed(url) {
+  const video = $('video');
+  const embed = $('embedPlayer');
+  if (hls) { hls.destroy(); hls = null; }
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  video.hidden = true;
+  $('playerStats').hidden = true;
+  clearInterval(statsTimer);
+  embed.src = url;
+  embed.hidden = false;
 }
 </script>
 </body>
