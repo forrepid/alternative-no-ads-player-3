@@ -17,7 +17,7 @@
   #smartInput { flex:1; min-width:280px; }
   #status { padding:8px 20px; font-size:13px; color:#aaa; }
   #status .live { color:#eb0400; font-weight:700; }
-  video, #embedPlayer { width:100%; height:auto; aspect-ratio:16/9; max-height:calc(100vh - 120px); border:0; background:#000; }
+  video { width:100%; height:auto; aspect-ratio:16/9; max-height:calc(100vh - 120px); border:0; background:#000; }
   #variantBar { display:none; }
   #playerShell { position:relative; background:#000; }
   #settings { margin:0 20px 10px; padding:12px; max-width:720px; border:1px solid #333;
@@ -73,7 +73,7 @@
   <button id="saveSettings" type="button">Kaydet</button>
   <span class="hint">Varsayılan mevcut davranışı korur. Stabil profil: 3/6 segment, 30 sn ileri ve 60 sn geri tampon.</span>
 </section>
-<div id="playerShell"><video id="video" controls autoplay muted></video><iframe id="embedPlayer" hidden title="Platform player" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe><div id="playerStats" aria-live="polite" hidden></div><select id="qualityBox" aria-label="Çözünürlük ve kalite" hidden><option value="master">Otomatik kalite</option></select></div>
+<div id="playerShell"><video id="video" controls autoplay muted></video><div id="playerStats" aria-live="polite" hidden></div><select id="qualityBox" aria-label="Çözünürlük ve kalite" hidden><option value="master">Otomatik kalite</option></select></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -300,11 +300,16 @@ async function loadStream() {
     setStatus(`${p} / ${c} · ${preflight.is_live ? 'CANLI' : 'durum kontrol edildi'}${preflight.viewers ? ` · ${Number(preflight.viewers).toLocaleString('tr-TR')} izleyici` : ''}${preflight.category ? ` · ${preflight.category}` : ''}`);
   } catch (_) {}
   const r = await fetch(`/api/stream/${p}/${c}`);
-  if (!r.ok) { $("status").textContent = "Yayın bulunamadı / çevrimdışı."; return; }
+  if (!r.ok) {
+    let detail = 'Yayın bulunamadı / çevrimdışı.';
+    try { detail = (await r.json()).detail || detail; } catch (_) {}
+    $("status").textContent = detail;
+    return;
+  }
   const info = await r.json();
   currentStream = info;
   setStatus(`● CANLI ${info.title ?? ""} ` +
-    (info.embed_url ? "— platform oynatıcısı" : info.ads_filtered ? "— reklam filtresi AKTİF" : "— doğrudan kaynak"), true);
+    (info.ads_filtered ? "— reklam filtresi AKTİF" : "— doğrudan kaynak"), true);
 
   const quality = $('qualityBox');
   quality.replaceChildren();
@@ -314,9 +319,8 @@ async function loadStream() {
     option.textContent = `${variant.quality || `Kalite ${index + 1}`}${variant.bandwidth ? ` · ${Math.round(variant.bandwidth / 1000)} kbps` : ''}`;
     quality.appendChild(option);
   });
-  quality.hidden = Boolean(info.embed_url);
-  if (info.embed_url) playEmbed(info.embed_url);
-  else play(info.master_playlist);
+  quality.hidden = false;
+  play(info.master_playlist);
 }
 
 $('qualityBox').addEventListener('change', event => {
@@ -329,10 +333,6 @@ $('qualityBox').addEventListener('change', event => {
 
 function play(url) {
   const video = $("video");
-  const embed = $('embedPlayer');
-  embed.hidden = true;
-  embed.removeAttribute('src');
-  video.hidden = false;
   if (hls) hls.destroy();
   clearTimeout(playbackTimer);
   fragmentBuffered = false;
@@ -358,41 +358,12 @@ function play(url) {
     hls.loadSource(url);
     hls.attachMedia(video);
     startPlayerStats();
-    // HLS listesi/segmenti engellenirse kullanıcı siyah ekranda kalmasın.
-    // Yalnızca sunucunun sağladığı resmi Twitch yedeğine geçilir.
-    playbackTimer = setTimeout(() => {
-      if (!fragmentBuffered && currentStream?.fallback_embed_url) {
-        setStatus('Doğrudan HLS akışı yanıt vermedi; resmi Twitch oynatıcısına geçiliyor…');
-        playEmbed(currentStream.fallback_embed_url);
-      }
-    }, 15000);
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = url;
   }
   video.play().catch(() => {});
 }
 
-function playEmbed(url) {
-  const video = $('video');
-  const embed = $('embedPlayer');
-  if (hls) { hls.destroy(); hls = null; }
-  video.pause();
-  video.removeAttribute('src');
-  video.load();
-  video.hidden = true;
-  $('playerStats').hidden = true;
-  clearInterval(statsTimer);
-  clearTimeout(playbackTimer);
-  // Twitch parent parametresi, sayfanın bulunduğu alan adıyla eşleşmelidir.
-  if (url.includes('player.twitch.tv')) {
-    url = url.replace(/([?&])parent=[^&]*/, `$1parent=${encodeURIComponent(location.hostname)}`);
-  }
-  const separator = url.includes('?') ? '&' : '?';
-  // YouTube, embed isteklerinde çağıran origin bilgisini doğrular. Bu
-  // parametre localhost ve dağıtılmış sürümlerde otomatik doğru kalır.
-  embed.src = `${url}${separator}origin=${encodeURIComponent(location.origin)}`;
-  embed.hidden = false;
-}
 </script>
 </body>
 </html>

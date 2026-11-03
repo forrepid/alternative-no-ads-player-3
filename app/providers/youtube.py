@@ -69,20 +69,11 @@ class YouTubeProvider(BaseProvider):
             html = await self._fetch_page(channel)
             m = HLS_RE.search(html)
             if not m:
-                # YouTube bazı canlı yayınlarda HLS manifestini ziyaretçiye
-                # vermez; yalnızca ayrık ses/video DASH formatlarını döndürür.
-                # Bunları tek bir <video> etiketiyle güvenilir birleştirmek
-                # mümkün değildir. Resmi embed oynatıcı bu yayınları destekler.
-                video_id = VIDEO_ID_RE.search(html)
-                if LIVE_RE.search(html) and video_id:
-                    info.is_live = True
-                    info.title = (TITLE_RE.search(html).group(1)
-                                  if TITLE_RE.search(html) else None)
-                    info.embed_url = (
-                        f"https://www.youtube.com/embed/{video_id.group(1)}"
-                        "?autoplay=1&mute=1&playsinline=1"
+                if LIVE_RE.search(html) and VIDEO_ID_RE.search(html):
+                    info.error = (
+                        "Bu YouTube yayını bağımsız HLS sağlamıyor; "
+                        "yerel HLS oynatıcıya aktarılabilir bir kaynak bulunamadı"
                     )
-                    info.source = "youtube_embed"
                 return info
             # YouTube player response içindeki URL JSON-string olarak escape
             # edilir (\\/ ve \\u0026 dahil). json.loads bunları doğru çözer.
