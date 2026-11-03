@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.http import http
 from app.core.models import ChannelStatus, Platform, StreamInfo
 from app.core.proxy import proxy_url
+from app.hls.variants import parse_variants
 from app.providers.base import BaseProvider
 
 log = logging.getLogger("provider.youtube")
@@ -67,6 +68,10 @@ class YouTubeProvider(BaseProvider):
             info.is_live = True
             info.title = title_m.group(1) if title_m else None
             info.master_playlist = proxy_url("/api/hls/master", hls_url)
+            try:
+                info.variants = parse_variants(await http.get_text(hls_url), hls_url)
+            except Exception as exc:  # noqa: BLE001
+                log.info("youtube variants unavailable for %s: %s", channel, exc)
             return info
         except Exception as exc:  # noqa: BLE001
             info.error = str(exc)

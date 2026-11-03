@@ -14,6 +14,9 @@ class StreamVariant(BaseModel):
     url: str
     resolution: str | None = None
     bandwidth: int | None = None
+    kind: str = "video"                 # video | audio
+    codecs: str | None = None
+    frame_rate: float | None = None
 
 
 class ChannelStatus(BaseModel):
@@ -39,3 +42,6 @@ class StreamInfo(BaseModel):
     # v2: opsiyonel alanlar (mevcut istemcileri bozmaz)
     source: str | None = None      # direct | ttv_lol | official
     error: str | None = None
+    viewers: int | None = None
+    category: str | None = None
+    started_at: str | None = None

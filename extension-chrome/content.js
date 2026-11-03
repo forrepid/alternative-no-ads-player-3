@@ -255,9 +255,17 @@
       const buffer = video.buffered.length ? Math.max(0, video.buffered.end(video.buffered.length - 1) - video.currentTime) : 0;
       const latency = Number.isFinite(hls.latency) ? `${hls.latency.toFixed(1)} sn` : '—';
       const quality = level ? `${level.height || '?'}p · ${Math.round((level.bitrate || 0) / 1000)} kbps` : 'Otomatik';
-      box.textContent = `Akış: ${quality} | Tampon: ${buffer.toFixed(1)} sn | Gecikme: ${latency} | ${stream.title || stream.channel || ''}`;
+      const rate = Number(hls.bandwidthEstimate);
+      const network = Number.isFinite(rate) && rate > 0 ? formatBitrate(rate) : 'ölçülüyor';
+      box.textContent = `Akış: ${quality} | Ağ: ${network} | Tampon: ${buffer.toFixed(1)} sn | Gecikme: ${latency} | ${stream.title || stream.channel || ''}`;
     };
     render(); shadowStatsTimer = window.setInterval(render, 1000);
+  }
+
+  function formatBitrate(bitsPerSecond) {
+    if (bitsPerSecond >= 1e9) return `${(bitsPerSecond / 1e9).toFixed(2)} Gbps`;
+    if (bitsPerSecond >= 1e6) return `${(bitsPerSecond / 1e6).toFixed(2)} Mbps`;
+    return `${Math.round(bitsPerSecond / 1e3)} Kbps`;
   }
 
   function backgroundLocalJson(path) {

@@ -4,9 +4,13 @@ from aiocache import cached
 
 from app.core.config import settings
 from app.core.http import http
-from app.core.models import ChannelStatus, Platform, StreamInfo, StreamVariant
+from app.core.models import ChannelStatus, Platform, StreamInfo
 from app.core.proxy import proxy_url
+from app.hls.variants import parse_variants
 from app.providers.base import BaseProvider
+
+# Backwards-compatible import name used by existing integrations/tests.
+_parse_variants = parse_variants
 
 log = logging.getLogger("provider.kick")
 
@@ -80,6 +84,9 @@ class KickProvider(BaseProvider):
             channel=channel,
             is_live=is_live,
             title=ls.get("session_title"),
+            viewers=ls.get("viewer_count"),
+            category=((ls.get("categories") or [{}])[0].get("name")),
+            started_at=ls.get("created_at"),
         )
         if not is_live:
             return info
@@ -87,29 +94,5 @@ class KickProvider(BaseProvider):
         # master playlist'i cek, variant'lari listele
         body = await http.get_text(playback)
         info.master_playlist = proxy_url("/api/hls/master", playback)
-        info.variants = _parse_variants(body, playback)
+        info.variants = parse_variants(body, playback)
         return info
-
-
-def _parse_variants(master_body: str, base_url: str) -> list[StreamVariant]:
-    variants: list[StreamVariant] = []
-    pending: dict = {}
-    from urllib.parse import urljoin
-    for line in master_body.splitlines():
-        s = line.strip()
-        if s.startswith("#EXT-X-STREAM-INF"):
-            attrs = {}
-            for part in s.split(":", 1)[1].split(","):
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                    attrs[k.strip()] = v.strip().strip('"')
-            pending = attrs
-        elif s and not s.startswith("#") and pending:
-            variants.append(StreamVariant(
-                quality=pending.get("NAME") or pending.get("RESOLUTION", "?"),
-                url=urljoin(base_url, s),
-                resolution=pending.get("RESOLUTION"),
-                bandwidth=int(pending["BANDWIDTH"]) if pending.get("BANDWIDTH", "").isdigit() else None,
-            ))
-            pending = {}
-    return variants

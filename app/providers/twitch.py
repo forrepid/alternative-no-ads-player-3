@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.http import http
 from app.core.models import ChannelStatus, Platform, StreamInfo
 from app.core.proxy import proxy_url
+from app.hls.variants import parse_variants
 from app.providers.base import BaseProvider
 from app.providers.twitch_integrity import solver as integrity_solver
 
@@ -137,12 +138,25 @@ class TwitchProvider(BaseProvider):
 
     # ---------- yayin (v2: kaynak secimi) ----------
     async def get_stream(self, channel: str) -> StreamInfo:
+        info: StreamInfo
         if settings.twitch_stream_source == "ttv_lol":
             info = await self._stream_via_ttv_lol(channel)
             if info.is_live:
-                return info
+                return await self._attach_status(info)
             log.info("ttv_lol basarisiz, direct'e dusuluyor: %s", channel)
-        return await self._stream_direct(channel)
+        info = await self._stream_direct(channel)
+        return await self._attach_status(info)
+
+    async def _attach_status(self, info: StreamInfo) -> StreamInfo:
+        """Oynatici overlay'i icin platform metadata'sini stream yanitina ekler."""
+        if not info.is_live:
+            return info
+        status = await self.get_status(info.channel)
+        info.title = info.title or status.title
+        info.viewers = status.viewers
+        info.category = status.category
+        info.started_at = status.started_at
+        return info
 
     async def _stream_via_ttv_lol(self, channel: str) -> StreamInfo:
         """TTV-LOL tarzi upstream proxy: usher istegini proxy uzerinden
@@ -159,6 +173,7 @@ class TwitchProvider(BaseProvider):
             info.is_live = True
             # BUGFIX(v2): & iceren URL'ler query'yi bozmasin diye encode
             info.master_playlist = proxy_url("/api/hls/master", url)
+            info.variants = parse_variants(body, url)
             info.ads_filtered = True  # upstream reklamlari zaten ayiklar
             return info
         except Exception as exc:  # noqa: BLE001
@@ -185,6 +200,11 @@ class TwitchProvider(BaseProvider):
         info.is_live = True
         # BUGFIX(v2): token icindeki & karakterleri query'yi bozmasin
         info.master_playlist = proxy_url("/api/hls/master", usher)
+        try:
+            info.variants = parse_variants(await http.get_text(usher), usher)
+        except Exception as exc:  # noqa: BLE001
+            # Oynatma listesi bazen sadece oynatma aninda erisilebilir; ana URL yine gecerlidir.
+            log.info("twitch variants unavailable for %s: %s", channel, exc)
         info.ads_filtered = settings.ad_filter_enabled
         return info
 

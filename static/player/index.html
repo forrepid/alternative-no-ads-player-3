@@ -126,8 +126,16 @@ function updatePlayerStats() {
   const latency = Number.isFinite(hls.latency) ? `${hls.latency.toFixed(1)} sn` : '—';
   const viewers = currentStream.viewers ? `${Number(currentStream.viewers).toLocaleString('tr-TR')} izleyici` : 'izleyici: —';
   const selected = $('qualityBox').selectedOptions[0]?.textContent || 'Otomatik kalite';
-  box.textContent = `Seçim: ${selected} | Akış: ${quality} | Tampon: ${buffered.toFixed(1)} sn | Gecikme: ${latency} | ${viewers}`;
+  const throughput = Number(hls.bandwidthEstimate);
+  const network = Number.isFinite(throughput) && throughput > 0 ? `${formatBitrate(throughput)} ağ` : 'ağ: ölçülüyor';
+  const source = `${currentStream.platform || $('platform').value} / ${currentStream.channel || $('channel').value}`;
+  box.textContent = `${source} | Seçim: ${selected} | Akış: ${quality} | ${network} | Tampon: ${buffered.toFixed(1)} sn | Gecikme: ${latency} | ${viewers}`;
   box.hidden = false;
+}
+function formatBitrate(bitsPerSecond) {
+  if (bitsPerSecond >= 1e9) return `${(bitsPerSecond / 1e9).toFixed(2)} Gbps`;
+  if (bitsPerSecond >= 1e6) return `${(bitsPerSecond / 1e6).toFixed(2)} Mbps`;
+  return `${Math.round(bitsPerSecond / 1e3)} Kbps`;
 }
 function startPlayerStats() {
   clearInterval(statsTimer); updatePlayerStats(); statsTimer = setInterval(updatePlayerStats, 1000);
@@ -204,12 +212,16 @@ async function updateSuggestions() {
     const button = document.createElement('button');
     button.className = 'suggestion'; button.type = 'button'; button.setAttribute('role', 'option');
     button.append(document.createTextNode(item.title || item.channel));
-    const tag = document.createElement('small'); tag.textContent = item.platform; button.appendChild(tag);
+    const tag = document.createElement('small');
+    tag.textContent = item.external ? item.platform : `${item.platform} · ${item.is_live ? 'CANLI' : 'durum kontrol edildi'}${item.viewers ? ` · ${Number(item.viewers).toLocaleString('tr-TR')} izleyici` : ''}`;
+    button.appendChild(tag);
     button.addEventListener('mousedown', event => event.preventDefault());
     button.addEventListener('click', () => {
       box.hidden = true;
       if (item.external) { window.open(platformSearchUrl(item.platform, item.channel), '_blank', 'noopener'); return; }
-      $("platform").value = item.platform; $("channel").value = item.channel; $("smartInput").value = item.channel; loadStream();
+      $("platform").value = item.platform; $("channel").value = item.channel; $("smartInput").value = item.channel;
+      setStatus(`${item.platform} · ${item.channel} · ${item.is_live ? 'CANLI' : 'durum kontrol edildi'}${item.viewers ? ` · ${Number(item.viewers).toLocaleString('tr-TR')} izleyici` : ''}`);
+      loadStream();
     });
     box.appendChild(button);
   });
@@ -280,6 +292,10 @@ async function loadStream() {
   const p = $("platform").value, c = $("channel").value.trim();
   if (!c) return;
   $("status").textContent = "Yükleniyor...";
+  try {
+    const preflight = await fetch(`/api/status/${p}/${encodeURIComponent(c)}`).then(response => response.json());
+    setStatus(`${p} / ${c} · ${preflight.is_live ? 'CANLI' : 'durum kontrol edildi'}${preflight.viewers ? ` · ${Number(preflight.viewers).toLocaleString('tr-TR')} izleyici` : ''}${preflight.category ? ` · ${preflight.category}` : ''}`);
+  } catch (_) {}
   const r = await fetch(`/api/stream/${p}/${c}`);
   if (!r.ok) { $("status").textContent = "Yayın bulunamadı / çevrimdışı."; return; }
   const info = await r.json();
@@ -291,7 +307,9 @@ async function loadStream() {
   quality.replaceChildren();
   const auto = document.createElement('option'); auto.value = 'master'; auto.textContent = 'Otomatik kalite'; quality.appendChild(auto);
   (info.variants || []).forEach((variant, index) => {
-    const option = document.createElement('option'); option.value = String(index); option.textContent = variant.quality || `Kalite ${index + 1}`; quality.appendChild(option);
+    const option = document.createElement('option'); option.value = String(index);
+    option.textContent = `${variant.quality || `Kalite ${index + 1}`}${variant.bandwidth ? ` · ${Math.round(variant.bandwidth / 1000)} kbps` : ''}`;
+    quality.appendChild(option);
   });
   quality.hidden = false;
   play(info.master_playlist);
